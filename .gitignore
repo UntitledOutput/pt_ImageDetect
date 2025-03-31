@@ -1,0 +1,6 @@
+/.vscode
+/cifar_net.pth
+/cifar_net_train.pth
+/data
+/output.png
+/__pycache__
