@@ -19,7 +19,7 @@ def imshow(img):
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.savefig('output.png')  # Save the image to a file
     print("\tLook at the picture...")
-    time.sleep(10)
+    #time.sleep(10)
 
 
 def color_percentage(value):

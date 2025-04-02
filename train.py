@@ -11,13 +11,13 @@ import os
 import download_data
 
 
-datapath = "./data"
+datapath = "./data/ceos"
 
 classes = ('plane', 'car', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
-batch_size = 64
+transform = transforms.Compose([transforms.Resize(32),transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
+batch_size = 12
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
@@ -42,9 +42,36 @@ class NeuralNetwork(nn.Module):
         x = self.fc3(x)
 
         return x
+    
+def save_checkpoint(model, optimizer, epoch, loss):
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss,
+    }, 'cifar_net_train.pth')
+    print("Checkpoint saved successfully. (Epoch {0})".format(epoch+1))
+
+def load_checkpoint(filepath, model, optimizer):
+    if os.path.exists(filepath):
+        checkpoint = torch.load(filepath)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint['epoch']
+        loss = checkpoint['loss']
+        print(f"Checkpoint loaded successfully from {filepath}. Resuming from epoch {epoch}.")
+        return epoch, loss
+    else:
+        print(f"No checkpoint found at {filepath}. Starting from scratch.")
+        return 0, None
 
 def train():
 
+    download_data.download_data(datapath,classes)
+    exit(1)
+
+    if (not os.path.exists(datapath)):
+        os.makedirs(datapath)
     if (not os.listdir(datapath)):
         download_data.download_data(datapath,classes)
         exit(1)
@@ -52,7 +79,7 @@ def train():
 
     print("Training with classes: ", classes)
 
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,download=True,transform=transform)
+    trainset = torchvision.datasets.ImageFolder(root=datapath, train=True,download=True,transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset,batch_size=batch_size,shuffle=True,num_workers=2)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -63,21 +90,11 @@ def train():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(net.parameters(),lr=0.001,momentum=0.9)
 
-    if (os.path.exists('cifar_net_train.pth')):
-        checkpoint = torch.load('cifar_net_train.pth')
-        net.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        epoch = checkpoint['epoch']
-        loss = checkpoint['loss']
-        net.train()
-        print("Checkpoint loaded successfully.")
+    start_epoch, _ = load_checkpoint('cifar_net_train.pth', net, optimizer)
 
+    print("Starting training...")
 
-    #torch.compile(model=net, mode="default")
-
-    print("Training started...")
-
-    for epoch in range(16): 
+    for epoch in range(start_epoch,start_epoch+16): 
 
         running_loss = 0.0
         for i, data in enumerate(trainloader, 0):
@@ -96,6 +113,8 @@ def train():
             if i % 2000 == 1999: 
                 print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / 2000:.3f}')
                 running_loss = 0.0
+        
+        save_checkpoint(net, optimizer, epoch, running_loss)
 
     print('Finished Training')
 

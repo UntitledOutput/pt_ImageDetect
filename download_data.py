@@ -1,19 +1,32 @@
 import os
-import google_images_download.google_images_download as gid
+import os
+import time
+import requests
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from webdriver_manager.chrome import ChromeDriverManager
+
+import imghdr
+import GoogleImageScraper as gimg
+
+def download_google_images(query, num_images=10, output_folder="images"):
+    urls = gimg.urls(query, limit=num_images)
+
+    print(urls)
 
 def download_data(path, imgs):
 
+    download_google_images("puppies",num_images=5,output_folder=path+"/puppies/")
 
     for i in imgs:
-        response = gid.googleimagesdownload()
+        pass
 
-        arguments = {
-            "keywords":i,
-            "limit":20,
-            "print_urls":False
-        }
+    pass
 
-        paths = response.download(arguments)
-        print(paths)
 
+import train
+if __name__ == '__main__':
+    download_data(train.datapath,train.classes)  # Call the train function to start training the model.
     pass
