@@ -129,7 +129,9 @@ def train():
 
     scaler = torch.amp.GradScaler()  # Automatic Mixed Precision (AMP) scaler
 
-    for epoch in range(start_epoch, start_epoch + 16): 
+    epochCount = 64
+
+    for epoch in range(start_epoch, start_epoch + epochCount): 
         running_loss = 0.0
         total_batches = len(trainloader)
         for i, data in enumerate(trainloader, 0):
@@ -151,7 +153,7 @@ def train():
 
         # Calculate average loss for the epoch
         avg_loss = running_loss / total_batches
-        print(f'Epoch [{epoch + 1}] Average Loss: {avg_loss:.15f} ( {start_epoch + (epoch - start_epoch) + 1}/{start_epoch + 16} )')
+        print(f'Epoch [{epoch + 1}] Average Loss: {avg_loss:.15f} ( {start_epoch + (epoch - start_epoch) + 1}/{start_epoch + epochCount} )')
 
         save_checkpoint(net, optimizer, epoch, avg_loss)
     print('Finished Training')
