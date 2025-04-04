@@ -24,9 +24,10 @@ def download_image(url, folder, index):
             for chunk in response.iter_content(1024):
                 file.write(chunk)
 
-        print(f"Downloaded: {file_path}")
+        #print(f"Downloaded: {file_path}")
     except Exception as e:
-        print(f"Failed to download {url}: {e}")
+        #print(f"Failed to download {url}: {e}")
+        pass
 
 
 def download_images_multithreaded(image_urls, folder):
@@ -34,7 +35,7 @@ def download_images_multithreaded(image_urls, folder):
     # Use ThreadPoolExecutor to download multiple images at once
     with ThreadPoolExecutor(max_workers=10) as executor:
         for index, url in enumerate(image_urls):
-            executor.submit(download_image, url, random.choice(folder), index)
+            executor.submit(download_image, url, folder[0] if index > 20 else folder[1], index)
 
 # Function to get DuckDuckGo image URLs
 def duckduckgo_image_search(query, num_images=10):
@@ -107,7 +108,10 @@ def download_data(path, imgs):
 
     for i in imgs:
         download_google_images(i,number_of_images=img_count,output_folder=path)
+        print("\033[92mDownloaded images for class: {0}\033[0m".format(i))
         pass
+
+    print("\033[92mAll images downloaded successfully.\033[0m")
 
     check_data_images(path)  # Check and clean images in train/test folders
 

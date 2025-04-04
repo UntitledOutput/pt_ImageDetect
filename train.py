@@ -129,7 +129,7 @@ def train():
 
     scaler = torch.amp.GradScaler()  # Automatic Mixed Precision (AMP) scaler
 
-    epochCount = 64
+    epochCount = 8
 
     for epoch in range(start_epoch, start_epoch + epochCount): 
         running_loss = 0.0
