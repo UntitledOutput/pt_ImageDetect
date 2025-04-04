@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import train
 import time
+from torch.amp import autocast
 
 #import intel_npu_acceleration_library as intel_npu
 
@@ -43,7 +44,13 @@ def separate():
 
 def test():
 
-    model = train.NeuralNetwork()
+
+    with open('celebrities.txt', 'r') as f:
+        train.classes = [line.strip() for line in f.readlines() if line.strip()]
+
+    torch.backends.cudnn.benchmark = True
+
+    model = train.resnet18(num_classes=len(train.classes))
     model.load_state_dict(torch.load('cifar_net.pth',weights_only=True))
     model.eval()
 
@@ -57,8 +64,8 @@ def test():
 
     model.to(device)
 
-    testset = torchvision.datasets.CIFAR10(root='./data',train=False,download=True,transform=train.transform)
-    testloader = torch.utils.data.DataLoader(testset,batch_size=train.batch_size,shuffle=True,num_workers=2)
+    testset = torchvision.datasets.ImageFolder(root=train.datapath+"/test", transform=train.transform)
+    testloader = torch.utils.data.DataLoader(testset,batch_size=train.batch_size,shuffle=True,num_workers=train.workers,pin_memory=True)
 
     dataiter = iter(testloader)
     images, labels = next(dataiter)
@@ -78,7 +85,9 @@ def test():
 
     #separate()
 
-    outputs = model(images)
+    with torch.no_grad():
+        with autocast(device_type="cuda"):
+            outputs = model(images)
 
     _, predicted = torch.max(outputs, 1)
 
@@ -100,7 +109,10 @@ def test():
         for data in testloader:
             images, labels = data[0].to(device), data[1].to(device)
             # calculate outputs by running images through the network
-            outputs = model(images)
+            with torch.no_grad():
+                with autocast(device_type="cuda"):
+                    outputs = model(images)
+
             # the class with the highest energy is what we choose as prediction
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
@@ -120,7 +132,10 @@ def test():
     with torch.no_grad():
         for data in testloader:
             images, labels = data[0].to(device), data[1].to(device)
-            outputs = model(images)
+            with torch.no_grad():
+                with autocast(device_type="cuda"):
+                    outputs = model(images)
+
             _, predictions = torch.max(outputs, 1)
             # collect the correct predictions for each class
             for label, prediction in zip(labels, predictions):

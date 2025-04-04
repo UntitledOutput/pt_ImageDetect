@@ -6,18 +6,34 @@ import torchvision.transforms as transforms
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torchvision.models import resnet18 
+from PIL import Image
 
 import os
 import download_data
+import warnings
+warnings.filterwarnings('ignore')
 
 
-datapath = "./data/ceos"
+datapath = "data/ceos/"
 
-classes = ('plane', 'car', 'bird', 'cat',
-           'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+classes = tuple([name for name in os.listdir(datapath+"/train/") if os.path.isdir(os.path.join(datapath+"/train/", name))]) if os.path.exists(datapath+"/train/") else ()
 
-transform = transforms.Compose([transforms.Resize(32),transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
-batch_size = 12
+transform = transforms.Compose([
+    transforms.Resize(32),
+    transforms.CenterCrop(32),
+    transforms.RandomHorizontalFlip(),  # Data augmentation
+    transforms.ToTensor(),
+    transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))
+])
+batch_size = 128
+workers = 12  # Number of worker threads for DataLoader
+
+def collate_fn(batch):
+  return {
+      'pixel_values': torch.stack([x['pixel_values'] for x in batch]),
+      'labels': torch.tensor([x['labels'] for x in batch])
+}
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
@@ -30,7 +46,7 @@ class NeuralNetwork(nn.Module):
         self.conv2 = nn.Conv2d(width,16,5)
         self.fc1 = nn.Linear(16*5*5,120)
         self.fc2 = nn.Linear(120,84)
-        self.fc3 = nn.Linear(84,10)
+        self.fc3 = nn.Linear(84,len(classes))
 
     def forward(self,x):
         x = self.pool(F.relu(self.conv1(x)))
@@ -67,55 +83,77 @@ def load_checkpoint(filepath, model, optimizer):
 
 def train():
 
-    download_data.download_data(datapath,classes)
-    exit(1)
-
     if (not os.path.exists(datapath)):
         os.makedirs(datapath)
     if (not os.listdir(datapath)):
+
+        with open('celebrities.txt', 'r') as f:
+            classes = [line.strip() for line in f.readlines() if line.strip()]
+
+
         download_data.download_data(datapath,classes)
-        exit(1)
+        #exit(1)
+
+    classes = tuple([name for name in os.listdir(datapath+"/train/") if os.path.isdir(os.path.join(datapath+"/train/", name))])
+    #download_data.check_data_images(datapath)  # Check and clean images in train/test folders
 
 
     print("Training with classes: ", classes)
 
-    trainset = torchvision.datasets.ImageFolder(root=datapath, train=True,download=True,transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset,batch_size=batch_size,shuffle=True,num_workers=2)
+    torch.backends.cudnn.benchmark = True  # Enable benchmark mode for faster training on GPUs
+    torch.backends.cuda.matmul.allow_tf32 = True  # Allows TensorFloat-32 (faster matmul)
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True  # Allows FP16 optimizations
+    torch._inductor.config.max_autotune_gemm = False  # Disables max autotune GEMM mode
+
+    #trainset = trainset = torchvision.datasets.CIFAR10(root='./data', train=True,download=True,transform=transform)
+    trainset = torchvision.datasets.ImageFolder(root=datapath+"/train/", transform=transform)
+    trainloader = torch.utils.data.DataLoader(trainset,batch_size=batch_size,shuffle=True,num_workers=workers,pin_memory=True,persistent_workers=True)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    net = NeuralNetwork()
+    net = resnet18(num_classes=len(classes))  # Load ResNet18 model without pretrained weights
     
-    net.to(device)
+    #net = torch.compile(net, mode='reduce-overhead')
+
+    net.to(device,memory_format=torch.channels_last)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(net.parameters(),lr=0.001,momentum=0.9)
+    optimizer = optim.AdamW(net.parameters(),lr=0.001)
 
     start_epoch, _ = load_checkpoint('cifar_net_train.pth', net, optimizer)
 
+
+    
+    print("Using device: ", torch.cuda.get_device_name(device) if torch.cuda.is_available() else "CPU")
+
     print("Starting training...")
 
-    for epoch in range(start_epoch,start_epoch+16): 
+    scaler = torch.amp.GradScaler()  # Automatic Mixed Precision (AMP) scaler
 
+    for epoch in range(start_epoch, start_epoch + 16): 
         running_loss = 0.0
+        total_batches = len(trainloader)
         for i, data in enumerate(trainloader, 0):
 
             inputs, labels = data[0].to(device), data[1].to(device)
 
             optimizer.zero_grad()
 
-            outputs = net(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            with torch.amp.autocast("cuda", enabled=True):  # Enable AMP for mixed precision training
+                # Forward pass
+                outputs = net(inputs)
+                loss = criterion(outputs, labels)
 
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             running_loss += loss.item()
-            if i % 2000 == 1999: 
-                print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / 2000:.3f}')
-                running_loss = 0.0
-        
-        save_checkpoint(net, optimizer, epoch, running_loss)
 
+        # Calculate average loss for the epoch
+        avg_loss = running_loss / total_batches
+        print(f'Epoch [{epoch + 1}] Average Loss: {avg_loss:.15f} ( {start_epoch + (epoch - start_epoch) + 1}/{start_epoch + 16} )')
+
+        save_checkpoint(net, optimizer, epoch, avg_loss)
     print('Finished Training')
 
 
