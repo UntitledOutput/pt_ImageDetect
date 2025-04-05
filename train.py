@@ -1,5 +1,3 @@
-
-
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -95,39 +93,40 @@ def train():
         #exit(1)
 
     classes = tuple([name for name in os.listdir(datapath+"/train/") if os.path.isdir(os.path.join(datapath+"/train/", name))])
-    #download_data.check_data_images(datapath)  # Check and clean images in train/test folders
+    download_data.check_data_images(datapath)  # Check and clean images in train/test folders
 
 
     print("Training with classes: ", classes)
-
-    torch.backends.cudnn.benchmark = True  # Enable benchmark mode for faster training on GPUs
-    torch.backends.cuda.matmul.allow_tf32 = True  # Allows TensorFloat-32 (faster matmul)
-    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True  # Allows FP16 optimizations
-    torch._inductor.config.max_autotune_gemm = False  # Disables max autotune GEMM mode
 
     #trainset = trainset = torchvision.datasets.CIFAR10(root='./data', train=True,download=True,transform=transform)
     trainset = torchvision.datasets.ImageFolder(root=datapath+"/train/", transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset,batch_size=batch_size,shuffle=True,num_workers=workers,pin_memory=True,persistent_workers=True)
 
+
+
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     net = resnet18(num_classes=len(classes))  # Load ResNet18 model without pretrained weights
-    
-    #net = torch.compile(net, mode='reduce-overhead')
 
-    net.to(device,memory_format=torch.channels_last)
+    if torch.cuda.is_available():
+        # Use CUDA-specific optimizations
+        net.to(device, memory_format=torch.channels_last)
+        torch.backends.cudnn.benchmark = True  # Enable benchmark mode for faster training on GPUs
+        torch.backends.cuda.matmul.allow_tf32 = True  # Allows TensorFloat-32 (faster matmul)
+        torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True  # Allows FP16 optimizations
+    else:
+        # Use CPU
+        net.to(device)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(net.parameters(),lr=0.001)
+    optimizer = optim.AdamW(net.parameters(), lr=0.001)
 
     start_epoch, _ = load_checkpoint('cifar_net_train.pth', net, optimizer)
 
-
-    
     print("Using device: ", torch.cuda.get_device_name(device) if torch.cuda.is_available() else "CPU")
-
     print("Starting training...")
 
-    scaler = torch.amp.GradScaler()  # Automatic Mixed Precision (AMP) scaler
+    # AMP (Automatic Mixed Precision) scaler
+    scaler = torch.amp.GradScaler(enabled=torch.cuda.is_available())
 
     epochCount = 8
 
@@ -135,12 +134,12 @@ def train():
         running_loss = 0.0
         total_batches = len(trainloader)
         for i, data in enumerate(trainloader, 0):
-
             inputs, labels = data[0].to(device), data[1].to(device)
 
             optimizer.zero_grad()
 
-            with torch.amp.autocast("cuda", enabled=True):  # Enable AMP for mixed precision training
+            # Enable AMP only if CUDA is available
+            with torch.amp.autocast("cuda", enabled=torch.cuda.is_available()):
                 # Forward pass
                 outputs = net(inputs)
                 loss = criterion(outputs, labels)
@@ -156,8 +155,8 @@ def train():
         print(f'Epoch [{epoch + 1}] Average Loss: {avg_loss:.15f} ( {start_epoch + (epoch - start_epoch) + 1}/{start_epoch + epochCount} )')
 
         save_checkpoint(net, optimizer, epoch, avg_loss)
-    print('Finished Training')
 
+    print('Finished Training')
 
     torch.save(net.state_dict(), './cifar_net.pth')
     torch.save({
